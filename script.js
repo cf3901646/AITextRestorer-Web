@@ -227,7 +227,7 @@ function render(compare) {
     ctx.drawImage(tmp, 0, 0);
     
     // 3. 绘制板块选框
-    if (toolMode === 'block') drawBlocks();
+    drawBlocks();
 }
 
 function onDown(e) {
