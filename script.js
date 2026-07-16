@@ -512,80 +512,97 @@ function updateBlockUI() {
 
 /* 基于 OpenCV.js 的智能板块配准对齐 */
 function alignBlock(idx) {
-    if (!cvReady || idx < 0) return;
+    if (idx < 0 || idx >= blocks.length) return;
     const b = blocks[idx], [x, y, w, h] = b.rect;
     
     // 计算原图与AI图的几何分辨率缩放因子
     const sx = imgOrig.naturalWidth / imgOpt.naturalWidth;
     const sy = imgOrig.naturalHeight / imgOpt.naturalHeight;
+    const xO = Math.round(x * sx), yO = Math.round(y * sy);
+    const wO = Math.round(w * sx), hO = Math.round(h * sy);
     
-    try {
-        // 1. 裁剪优化图（AI图）目标子图
-        const optC = document.createElement('canvas'); optC.width = w; optC.height = h;
-        optC.getContext('2d').drawImage(imgOpt, x, y, w, h, 0, 0, w, h);
-        const mOpt = cv.imread(optC), mOptG = new cv.Mat();
-        cv.cvtColor(mOpt, mOptG, cv.COLOR_RGBA2GRAY);
-        
-        // 2. 确定原图在大图分辨率下的对应映射搜索区（外扩 pad 边界，支持大平移容错）
-        const xO = Math.round(x * sx), yO = Math.round(y * sy);
-        const wO = Math.round(w * sx), hO = Math.round(h * sy);
-        const pad = 90; 
-        const ssx = Math.max(0, xO - pad), ssy = Math.max(0, yO - pad);
-        const eex = Math.min(imgOrig.naturalWidth, xO + wO + pad), eey = Math.min(imgOrig.naturalHeight, yO + hO + pad);
-        
-        const sW = eex - ssx, sH = eey - ssy;
-        const tW = Math.round(sW / sx), tH = Math.round(sH / sy);
-        
-        // 3. 裁剪并缩放原图局部搜索区
-        const sC = document.createElement('canvas'); sC.width = sW; sC.height = sH;
-        sC.getContext('2d').drawImage(imgOrig, ssx, ssy, sW, sH, 0, 0, sW, sH);
-        
-        const rC = document.createElement('canvas'); rC.width = tW; rC.height = tH;
-        rC.getContext('2d').drawImage(sC, 0, 0, tW, tH);
-        
-        const mS = cv.imread(rC), mSG = new cv.Mat();
-        cv.cvtColor(mS, mSG, cv.COLOR_RGBA2GRAY);
-        
-        let ok = false;
-        if (tW >= w && tH >= h) {
-            const res = new cv.Mat();
-            cv.matchTemplate(mSG, mOptG, res, cv.TM_CCOEFF_NORMED);
-            const mm = cv.minMaxLoc(res);
-            res.delete();
+    let ok = false;
+    if (cvReady) {
+        let mOpt = null, mOptG = null, mS = null, mSG = null;
+        try {
+            // 1. 裁剪优化图（AI图）目标子图
+            const optC = document.createElement('canvas'); optC.width = w; optC.height = h;
+            optC.getContext('2d').drawImage(imgOpt, x, y, w, h, 0, 0, w, h);
+            mOpt = cv.imread(optC); mOptG = new cv.Mat();
+            cv.cvtColor(mOpt, mOptG, cv.COLOR_RGBA2GRAY);
             
-            // 匹配置信度阈值判定
-            if (mm.maxVal > 0.38) {
-                const mx = ssx / sx + mm.maxLoc.x;
-                const my = ssy / sy + mm.maxLoc.y;
+            // 2. 确定原图在大图分辨率下的对应映射搜索区（外扩 pad 边界，支持大平移容错）
+            const pad = 90; 
+            const ssx = Math.max(0, xO - pad), ssy = Math.max(0, yO - pad);
+            const eex = Math.min(imgOrig.naturalWidth, xO + wO + pad), eey = Math.min(imgOrig.naturalHeight, yO + hO + pad);
+            
+            const sW = eex - ssx, sH = eey - ssy;
+            const tW = Math.round(sW / sx), tH = Math.round(sH / sy);
+            
+            // 3. 裁剪并缩放原图局部搜索区
+            const sC = document.createElement('canvas'); sC.width = sW; sC.height = sH;
+            sC.getContext('2d').drawImage(imgOrig, ssx, ssy, sW, sH, 0, 0, sW, sH);
+            
+            const rC = document.createElement('canvas'); rC.width = tW; rC.height = tH;
+            rC.getContext('2d').drawImage(sC, 0, 0, tW, tH);
+            
+            mS = cv.imread(rC); mSG = new cv.Mat();
+            cv.cvtColor(mS, mSG, cv.COLOR_RGBA2GRAY);
+            
+            if (tW >= w && tH >= h) {
+                const res = new cv.Mat();
+                cv.matchTemplate(mSG, mOptG, res, cv.TM_CCOEFF_NORMED);
+                const mm = cv.minMaxLoc(res);
+                res.delete();
                 
-                // 进行色彩与风格自适应混合传递 (Reinhard色彩算法)，贴回对齐底片
-                const patchOrigCanvas = document.createElement('canvas');
-                patchOrigCanvas.width = w; patchOrigCanvas.height = h;
-                patchOrigCanvas.getContext('2d').drawImage(imgOrig, Math.round(mx * sx), Math.round(my * sy), wO, hO, 0, 0, w, h);
-                
-                const patchOptCanvas = document.createElement('canvas');
-                patchOptCanvas.width = w; patchOptCanvas.height = h;
-                patchOptCanvas.getContext('2d').drawImage(imgOpt, x, y, w, h, 0, 0, w, h);
-                
-                // 执行自适应通道均衡色彩风格传递，无痕融合
-                const alignedPatchData = colorTransfer(patchOrigCanvas, patchOptCanvas);
-                canvasAligned.getContext('2d').putImageData(alignedPatchData, x, y);
-                ok = true;
+                // 匹配置信度阈值判定
+                if (mm.maxVal > 0.38) {
+                    const mx = ssx / sx + mm.maxLoc.x;
+                    const my = ssy / sy + mm.maxLoc.y;
+                    
+                    // 进行色彩与风格自适应混合传递 (Reinhard色彩算法)，贴回对齐底片
+                    const patchOrigCanvas = document.createElement('canvas');
+                    patchOrigCanvas.width = w; patchOrigCanvas.height = h;
+                    patchOrigCanvas.getContext('2d').drawImage(imgOrig, Math.round(mx * sx), Math.round(my * sy), wO, hO, 0, 0, w, h);
+                    
+                    const patchOptCanvas = document.createElement('canvas');
+                    patchOptCanvas.width = w; patchOptCanvas.height = h;
+                    patchOptCanvas.getContext('2d').drawImage(imgOpt, x, y, w, h, 0, 0, w, h);
+                    
+                    // 执行自适应通道均衡色彩风格传递，无痕融合
+                    const alignedPatchData = colorTransfer(patchOrigCanvas, patchOptCanvas);
+                    canvasAligned.getContext('2d').putImageData(alignedPatchData, x, y);
+                    ok = true;
+                }
             }
+        } catch (err) {
+            console.error("OpenCV align failed, fallback to physical alignment:", err);
+        } finally {
+            // 释放 OpenCV 内存
+            if (mOpt) mOpt.delete();
+            if (mOptG) mOptG.delete();
+            if (mS) mS.delete();
+            if (mSG) mSG.delete();
         }
-        
-        if (!ok) {
-            // 匹配失败兜底：使用无变形的物理直接对齐贴回
-            canvasAligned.getContext('2d').drawImage(imgOrig, xO, yO, wO, hO, x, y, w, h);
-        }
-        
-        b.alignStatus = ok ? 'success' : 'failed';
-        mOpt.delete(); mOptG.delete(); mS.delete(); mSG.delete();
-        setStatus(`${b.label} ${ok ? '自动配准成功并完成色彩自适应' : '特征匹配失败，已自动以物理对齐替代'}`);
-    } catch (err) {
-        console.error(err);
-        b.alignStatus = 'failed';
     }
+    
+    // 物理直接对齐贴回：不论是 OpenCV 匹配未达标还是 OpenCV.js 未就绪/报错，都进行兜底绘制
+    if (!ok) {
+        canvasAligned.getContext('2d').drawImage(imgOrig, xO, yO, wO, hO, x, y, w, h);
+    }
+    
+    // 自动将该板块对应矩形填充为已涂抹（白色），立刻在画布呈现对齐结果，无需用户二次笔刷涂抹
+    if (maskCtx) {
+        maskCtx.save();
+        maskCtx.globalCompositeOperation = 'source-over';
+        maskCtx.fillStyle = 'rgba(255, 255, 255, 1)';
+        maskCtx.fillRect(x, y, w, h);
+        maskCtx.restore();
+        saveHist();
+    }
+    
+    b.alignStatus = ok ? 'success' : 'failed';
+    setStatus(ok ? `${b.label} 自动配准成功并完成色彩自适应` : `${b.label} 特征匹配未达标，已自动以物理对齐替代`);
     updateBlockUI();
     render();
 }
