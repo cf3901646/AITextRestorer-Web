@@ -9,22 +9,38 @@ let dragStartRect = null, dragStartX = 0, dragStartY = 0;
 const canvas = document.getElementById('editor-canvas');
 const ctx = canvas.getContext('2d');
 
-document.addEventListener('DOMContentLoaded', () => { bindUI(); setupCapsule(); });
+document.addEventListener('DOMContentLoaded', () => {
+    bindUI();
+    setupCapsule();
+    // 页面DOM加载完成时，立刻主动检查一次OpenCV是否已经就绪
+    checkOpenCVStatus();
+});
+
+function checkOpenCVStatus() {
+    if (cvReady) return;
+    if (window.cvReadyState || (typeof cv !== 'undefined' && cv.Mat)) {
+        cvReady = true;
+        document.getElementById('status-dot').className = 'status-dot ready';
+        document.getElementById('status-text').textContent = 'AI 算法引擎就绪';
+        setStatus('OpenCV 引擎载入完毕。');
+    }
+}
 
 document.addEventListener('opencv-ready', () => {
-    cvReady = true;
-    document.getElementById('status-dot').className = 'status-dot ready';
-    document.getElementById('status-text').textContent = 'AI 算法引擎就绪';
-    setStatus('OpenCV 引擎载入完毕。');
+    checkOpenCVStatus();
 });
+
 document.addEventListener('opencv-failed', () => {
     document.getElementById('status-dot').className = 'status-dot failed';
     document.getElementById('status-text').textContent = '引擎加载失败（基础功能可用）';
     setStatus('OpenCV 加载失败，板块自动配准不可用，涂抹和导出仍正常工作。');
 });
+
 setTimeout(() => {
+    checkOpenCVStatus();
     if (!cvReady) document.dispatchEvent(new Event('opencv-failed'));
 }, 25000);
+
 
 function setStatus(m) { document.getElementById('status-msg').textContent = m; }
 function showModal(t, b) {

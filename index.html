@@ -136,12 +136,13 @@
     <script>
         var Module = {
             onRuntimeInitialized: function() {
+                window.cvReadyState = true;
                 document.dispatchEvent(new Event('opencv-ready'));
             }
         };
     </script>
     <script async
-        src="https://docs.opencv.org/4.10.0/opencv.js"
+        src="https://docs.opencv.org/4.13.0/opencv.js"
         onload="console.log('[OpenCV] Script tag loaded.')"
         onerror="document.dispatchEvent(new Event('opencv-failed'))">
     </script>
