@@ -534,72 +534,193 @@ function alignBlock(idx) {
     
     let ok = false;
     if (cvReady) {
-        let mOpt = null, mOptG = null, mS = null, mSG = null;
+        let mStretched = null;
+        let mOpt = null, mOptG = null;
+        let mSearch = null, mSearchG = null;
+        
         try {
+            // 0. 准备等大的直接拉伸底图，用于进行大图仿射/透视变换，防止越界黑边
+            const stretchedCanvas = document.createElement('canvas');
+            stretchedCanvas.width = imgOpt.naturalWidth;
+            stretchedCanvas.height = imgOpt.naturalHeight;
+            stretchedCanvas.getContext('2d').drawImage(imgOrig, 0, 0, stretchedCanvas.width, stretchedCanvas.height);
+            mStretched = cv.imread(stretchedCanvas);
+
             // 1. 裁剪优化图（AI图）目标子图
             const optC = document.createElement('canvas'); optC.width = w; optC.height = h;
             optC.getContext('2d').drawImage(imgOpt, x, y, w, h, 0, 0, w, h);
             mOpt = cv.imread(optC); mOptG = new cv.Mat();
             cv.cvtColor(mOpt, mOptG, cv.COLOR_RGBA2GRAY);
             
-            // 2. 确定原图在大图分辨率下的对应映射搜索区（外扩 pad 边界，支持大平移容错）
-            const pad = 90; 
-            const ssx = Math.max(0, xO - pad), ssy = Math.max(0, yO - pad);
-            const eex = Math.min(imgOrig.naturalWidth, xO + wO + pad), eey = Math.min(imgOrig.naturalHeight, yO + hO + pad);
+            // 2. 确定原图在大图分辨率下的对应映射搜索区（外扩 pad 边界，支持大平移容错，比例与 Python 一致）
+            const padX = 70 * sx;
+            const padY = 70 * sy;
+            const ssx = Math.max(0, Math.round(xO - padX)), ssy = Math.max(0, Math.round(yO - padY));
+            const eex = Math.min(imgOrig.naturalWidth, Math.round(xO + wO + padX)), eey = Math.min(imgOrig.naturalHeight, Math.round(yO + hO + padY));
             
             const sW = eex - ssx, sH = eey - ssy;
-            const tW = Math.round(sW / sx), tH = Math.round(sH / sy);
+            const target_search_w = Math.round(sW / sx), target_search_h = Math.round(sH / sy);
             
             // 3. 裁剪并缩放原图局部搜索区
             const sC = document.createElement('canvas'); sC.width = sW; sC.height = sH;
             sC.getContext('2d').drawImage(imgOrig, ssx, ssy, sW, sH, 0, 0, sW, sH);
             
-            const rC = document.createElement('canvas'); rC.width = tW; rC.height = tH;
-            rC.getContext('2d').drawImage(sC, 0, 0, tW, tH);
+            const rC = document.createElement('canvas'); rC.width = target_search_w; rC.height = target_search_h;
+            rC.getContext('2d').drawImage(sC, 0, 0, target_search_w, target_search_h);
             
-            mS = cv.imread(rC); mSG = new cv.Mat();
-            cv.cvtColor(mS, mSG, cv.COLOR_RGBA2GRAY);
+            mSearch = cv.imread(rC); mSearchG = new cv.Mat();
+            cv.cvtColor(mSearch, mSearchG, cv.COLOR_RGBA2GRAY);
             
-            if (tW >= w && tH >= h) {
+            // --- 阶段一：模板匹配并使用仿射变换（warpAffine）对齐 ---
+            if (target_search_w >= w && target_search_h >= h) {
                 const res = new cv.Mat();
-                cv.matchTemplate(mSG, mOptG, res, cv.TM_CCOEFF_NORMED);
+                cv.matchTemplate(mSearchG, mOptG, res, cv.TM_CCOEFF_NORMED);
                 const mm = cv.minMaxLoc(res);
                 res.delete();
                 
-                // 匹配置信度阈值判定
                 if (mm.maxVal > 0.38) {
-                    const mx = ssx / sx + mm.maxLoc.x;
-                    const my = ssy / sy + mm.maxLoc.y;
+                    const sx_opt = ssx / sx;
+                    const sy_opt = ssy / sy;
+                    const match_x_opt = sx_opt + mm.maxLoc.x;
+                    const match_y_opt = sy_opt + mm.maxLoc.y;
                     
-                    // 进行色彩与风格自适应混合传递 (Reinhard色彩算法)，贴回对齐底片
+                    // 构建三点非刚性仿射拉伸关系，使拉伸比例与切片完美配对
+                    let srcTri = cv.matFromArray(3, 1, cv.CV_32FC2, [
+                        match_x_opt, match_y_opt,
+                        match_x_opt + w, match_y_opt,
+                        match_x_opt, match_y_opt + h
+                    ]);
+                    let dstTri = cv.matFromArray(3, 1, cv.CV_32FC2, [
+                        x, y,
+                        x + w, y,
+                        x, y + h
+                    ]);
+                    
+                    let M_global = cv.getAffineTransform(srcTri, dstTri);
+                    let stretchedShifted = new cv.Mat();
+                    let dsize = new cv.Size(imgOpt.naturalWidth, imgOpt.naturalHeight);
+                    cv.warpAffine(mStretched, stretchedShifted, M_global, dsize, cv.INTER_LINEAR, cv.BORDER_REPLICATE);
+                    
+                    let rect = new cv.Rect(x, y, w, h);
+                    let alignedPatch = stretchedShifted.roi(rect);
+                    
                     const patchOrigCanvas = document.createElement('canvas');
                     patchOrigCanvas.width = w; patchOrigCanvas.height = h;
-                    patchOrigCanvas.getContext('2d').drawImage(imgOrig, Math.round(mx * sx), Math.round(my * sy), wO, hO, 0, 0, w, h);
+                    cv.imshow(patchOrigCanvas, alignedPatch);
                     
                     const patchOptCanvas = document.createElement('canvas');
                     patchOptCanvas.width = w; patchOptCanvas.height = h;
                     patchOptCanvas.getContext('2d').drawImage(imgOpt, x, y, w, h, 0, 0, w, h);
                     
-                    // 执行自适应通道均衡色彩风格传递，无痕融合
                     const alignedPatchData = colorTransfer(patchOrigCanvas, patchOptCanvas);
                     canvasAligned.getContext('2d').putImageData(alignedPatchData, x, y);
+                    
+                    srcTri.delete(); dstTri.delete(); M_global.delete(); stretchedShifted.delete(); alignedPatch.delete();
                     ok = true;
+                    console.log(`[ALIGN] Template matched. maxVal=${mm.maxVal.toFixed(3)}`);
                 }
             }
+
+            // --- 阶段二：若模板匹配未达标，则启动 ORB 特征点单应性透视变换（warpPerspective）对齐 ---
+            if (!ok) {
+                let orb = new cv.ORB(1000);
+                let kp1 = new cv.KeyPointVector(), kp2 = new cv.KeyPointVector();
+                let des1 = new cv.Mat(), des2 = new cv.Mat();
+                let noMask = new cv.Mat();
+                
+                orb.detectAndCompute(mSearchG, noMask, kp1, des1);
+                orb.detectAndCompute(mOptG, noMask, kp2, des2);
+                noMask.delete();
+                
+                if (!des1.empty() && !des2.empty()) {
+                    let matcher = new cv.BFMatcher(cv.NORM_HAMMING, true);
+                    let matches = new cv.DMatchVector();
+                    matcher.match(des1, des2, matches);
+                    
+                    if (matches.size() >= 4) {
+                        let pts1Data = [];
+                        let pts2Data = [];
+                        for (let i = 0; i < matches.size(); ++i) {
+                            let m = matches.get(i);
+                            let pt1 = kp1.get(m.queryIdx).pt;
+                            let pt2 = kp2.get(m.trainIdx).pt;
+                            pts1Data.push(pt1.x, pt1.y);
+                            pts2Data.push(pt2.x, pt2.y);
+                        }
+                        
+                        let pts1Mat = cv.matFromArray(pts1Data.length / 2, 1, cv.CV_32FC2, pts1Data);
+                        let pts2Mat = cv.matFromArray(pts2Data.length / 2, 1, cv.CV_32FC2, pts2Data);
+                        
+                        let h_mat = cv.findHomography(pts1Mat, pts2Mat, cv.RANSAC, 3.0);
+                        
+                        if (!h_mat.empty()) {
+                            let T_dst = cv.matFromArray(3, 3, cv.CV_32F, [
+                                1, 0, x,
+                                0, 1, y,
+                                0, 0, 1
+                            ]);
+                            
+                            const sx_opt = ssx / sx;
+                            const sy_opt = ssy / sy;
+                            let T_src = cv.matFromArray(3, 3, cv.CV_32F, [
+                                1, 0, -sx_opt,
+                                0, 1, -sy_opt,
+                                0, 0, 1
+                            ]);
+                            
+                            let h_mat_32 = new cv.Mat();
+                            h_mat.convertTo(h_mat_32, cv.CV_32F);
+                            
+                            let temp = new cv.Mat();
+                            cv.gemm(h_mat_32, T_src, 1, new cv.Mat(), 0, temp, 0);
+                            
+                            let H_global = new cv.Mat();
+                            cv.gemm(T_dst, temp, 1, new cv.Mat(), 0, H_global, 0);
+                            
+                            let stretchedShifted = new cv.Mat();
+                            let dsize = new cv.Size(imgOpt.naturalWidth, imgOpt.naturalHeight);
+                            cv.warpPerspective(mStretched, stretchedShifted, H_global, dsize, cv.INTER_LINEAR, cv.BORDER_REPLICATE);
+                            
+                            let rect = new cv.Rect(x, y, w, h);
+                            let alignedPatch = stretchedShifted.roi(rect);
+                            
+                            const patchOrigCanvas = document.createElement('canvas');
+                            patchOrigCanvas.width = w; patchOrigCanvas.height = h;
+                            cv.imshow(patchOrigCanvas, alignedPatch);
+                            
+                            const patchOptCanvas = document.createElement('canvas');
+                            patchOptCanvas.width = w; patchOptCanvas.height = h;
+                            patchOptCanvas.getContext('2d').drawImage(imgOpt, x, y, w, h, 0, 0, w, h);
+                            
+                            const alignedPatchData = colorTransfer(patchOrigCanvas, patchOptCanvas);
+                            canvasAligned.getContext('2d').putImageData(alignedPatchData, x, y);
+                            
+                            pts1Mat.delete(); pts2Mat.delete(); h_mat.delete(); h_mat_32.delete();
+                            T_dst.delete(); T_src.delete(); temp.delete(); H_global.delete();
+                            stretchedShifted.delete(); alignedPatch.delete();
+                            ok = true;
+                            console.log(`[ALIGN] ORB matched. matchesCount=${matches.size()}`);
+                        }
+                    }
+                    matches.delete();
+                }
+                
+                orb.delete(); kp1.delete(); kp2.delete(); des1.delete(); des2.delete();
+            }
         } catch (err) {
-            console.error("OpenCV align failed, fallback to physical alignment:", err);
+            console.error("OpenCV block align engine exception:", err);
         } finally {
-            // 释放 OpenCV 内存
+            if (mStretched) mStretched.delete();
             if (mOpt) mOpt.delete();
             if (mOptG) mOptG.delete();
-            if (mS) mS.delete();
-            if (mSG) mSG.delete();
+            if (mSearch) mSearch.delete();
+            if (mSearchG) mSearchG.delete();
         }
     }
     
-    // 物理直接对齐贴回：不论是 OpenCV 匹配未达标还是 OpenCV.js 未就绪/报错，都进行兜底绘制
     if (!ok) {
         canvasAligned.getContext('2d').drawImage(imgOrig, xO, yO, wO, hO, x, y, w, h);
+        console.log("[ALIGN] Fallback to physical position alignment.");
     }
     
     b.alignStatus = ok ? 'success' : 'failed';
