@@ -310,8 +310,9 @@ function onUp(e) {
     
     if (toolMode === 'block') {
         if (resizingHandle) {
-            if (cvReady) alignBlock(activeBlockIdx);
+            recomputeAllBlocks();
             resizingHandle = null;
+            updateBlockUI();
         } else if (isPainting) {
             const bx = Math.min(dragStartX, c.x), by = Math.min(dragStartY, c.y);
             const bw = Math.abs(c.x - dragStartX), bh = Math.abs(c.y - dragStartY);
@@ -322,13 +323,9 @@ function onUp(e) {
                     alignStatus: 'pending'
                 });
                 activeBlockIdx = blocks.length - 1;
-                if (cvReady) alignBlock(activeBlockIdx);
-                else {
-                    blocks[activeBlockIdx].alignStatus = 'failed';
-                    setStatus('OpenCV 未就绪，板块使用物理映射对齐。');
-                }
+                recomputeAllBlocks();
+                updateBlockUI();
             }
-            updateBlockUI();
         }
     }
     isPainting = false;
@@ -498,6 +495,7 @@ function updateBlockUI() {
                 blocks.splice(i, 1);
                 blocks.forEach((bb, j) => bb.label = `板块 ${j + 1}`);
                 activeBlockIdx = -1;
+                recomputeAllBlocks();
                 updateBlockUI();
                 render();
             } else {
@@ -507,6 +505,19 @@ function updateBlockUI() {
             }
         });
         el.appendChild(d);
+    });
+}
+
+/* 重新计算并拼合所有文字板块的配准对齐底图 */
+function recomputeAllBlocks() {
+    if (!canvasAligned || !imgOrig) return;
+    const actx = canvasAligned.getContext('2d');
+    // 重置对齐底片为直接物理缩放的默认原图
+    actx.drawImage(imgOrig, 0, 0, canvasAligned.width, canvasAligned.height);
+    
+    // 依次计算每一个存量板块的对齐并贴回
+    blocks.forEach((b, i) => {
+        alignBlock(i);
     });
 }
 
@@ -591,20 +602,8 @@ function alignBlock(idx) {
         canvasAligned.getContext('2d').drawImage(imgOrig, xO, yO, wO, hO, x, y, w, h);
     }
     
-    // 自动将该板块对应矩形填充为已涂抹（白色），立刻在画布呈现对齐结果，无需用户二次笔刷涂抹
-    if (maskCtx) {
-        maskCtx.save();
-        maskCtx.globalCompositeOperation = 'source-over';
-        maskCtx.fillStyle = 'rgba(255, 255, 255, 1)';
-        maskCtx.fillRect(x, y, w, h);
-        maskCtx.restore();
-        saveHist();
-    }
-    
     b.alignStatus = ok ? 'success' : 'failed';
-    setStatus(ok ? `${b.label} 自动配准成功并完成色彩自适应` : `${b.label} 特征匹配未达标，已自动以物理对齐替代`);
-    updateBlockUI();
-    render();
+    setStatus(ok ? `【对齐成功】板块 '${b.label}' 已配准，色彩和亮度已自动适应AI图！` : `【对齐失败】板块 '${b.label}' 未找到特征。请拖动边框手动微调！`);
 }
 
 /* RGB <-> CIE LAB 空间 Reinhard 自适应色彩平衡传递 */
