@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AITextRestorer - 智能图像文字变形自适应修复系统</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- 引入 Google Outfit 和 Inter 字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- 头部精致毛玻璃标题栏 -->
+    <header class="app-header">
+        <div class="logo-area">
+            <span class="logo-icon">✦</span>
+            <h1>AITextRestorer <span class="badge">Web Pro</span></h1>
+        </div>
+        <div class="engine-status" id="engine-status">
+            <span class="status-dot pulsing"></span>
+            <span class="status-text">WebAssembly 算法引擎初始化中...</span>
+        </div>
+    </header>
+
+    <!-- 主工作区 -->
+    <main class="main-container">
+        <!-- 左侧控制面板 -->
+        <aside class="control-panel">
+            <!-- 1. 导入部分 -->
+            <section class="panel-section">
+                <h2 class="section-title">1. 导入照片</h2>
+                <div class="file-inputs">
+                    <label class="file-btn primary-file-btn">
+                        <input type="file" id="load-orig" accept="image/*" disabled>
+                        导入 原始清晰照片
+                    </label>
+                    <label class="file-btn secondary-file-btn">
+                        <input type="file" id="load-opt" accept="image/*" disabled>
+                        导入 AI增强后照片
+                    </label>
+                </div>
+            </section>
+
+            <!-- 2. 工具模式选择 -->
+            <section class="panel-section">
+                <h2 class="section-title">2. 模式与笔刷工具</h2>
+                
+                <!-- 苹果风滑动胶囊切换 -->
+                <div class="capsule-container">
+                    <div class="capsule-slider" id="capsule-slider"></div>
+                    <button class="capsule-btn active" data-mode="draw">🎨 还原笔刷</button>
+                    <button class="capsule-btn" data-mode="erase">🧽 擦除橡皮</button>
+                    <button class="capsule-btn" data-mode="block">⛶ 文字板块</button>
+                </div>
+
+                <!-- 滑块控制 -->
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>画笔大小</span>
+                        <span id="brush-val">22 px</span>
+                    </div>
+                    <input type="range" id="slider-brush" min="3" max="120" value="22">
+                </div>
+
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>边缘羽化</span>
+                        <span id="feather-val">8 px</span>
+                    </div>
+                    <input type="range" id="slider-feather" min="0" max="40" value="8">
+                </div>
+
+                <!-- 历史与重置 -->
+                <div class="action-row">
+                    <button id="btn-undo" class="action-btn" disabled>撤销 (Ctrl+Z)</button>
+                    <button id="btn-clear" class="action-btn" disabled>重置涂抹</button>
+                </div>
+            </section>
+
+            <!-- 3. 板块对齐管理器 -->
+            <section class="panel-section block-section">
+                <h2 class="section-title">3. 文字对齐板块管理器</h2>
+                <div class="block-list-container" id="block-list">
+                    <div class="placeholder-text">无活跃板块。请在“文字板块”模式下在右侧画布中拉框创建。</div>
+                </div>
+            </section>
+
+            <!-- 4. 导出大图 -->
+            <section class="panel-section export-section">
+                <button id="btn-save" class="export-btn" disabled>💾 导出最终无损图片</button>
+            </section>
+        </aside>
+
+        <!-- 右侧画布区 -->
+        <div class="canvas-workspace">
+            <div class="canvas-holder">
+                <canvas id="editor-canvas"></canvas>
+            </div>
+            
+            <!-- 画布浮动控制工具条 -->
+            <div class="canvas-controls">
+                <button id="btn-compare" class="compare-btn" disabled>按住对比原图</button>
+                <div class="zoom-controls">
+                    <button id="zoom-out" class="zoom-step-btn">－</button>
+                    <span id="zoom-lbl">100%</span>
+                    <button id="zoom-in" class="zoom-step-btn">＋</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 底部状态条 -->
+    <footer class="app-footer">
+        <span id="status-msg">就绪。算法引擎加载中，请稍候...</span>
+        <span class="credit">Powered by OpenCV.js & WebAssembly</span>
+    </footer>
+
+    <!-- 异常提示对话框 -->
+    <div class="modal" id="alert-modal">
+        <div class="modal-content">
+            <h3 id="modal-title">提示</h3>
+            <p id="modal-body">内容</p>
+            <button class="modal-btn" onclick="closeModal()">确定</button>
+        </div>
+    </div>
+
+    <!-- 异步加载 OpenCV.js (4.5.0 构建版本) -->
+    <script>
+        var Module = {
+            onRuntimeInitialized: function() {
+                document.dispatchEvent(new Event('opencv-ready'));
+            }
+        };
+    </script>
+    <script async src="https://docs.opencv.org/4.5.0/opencv.js" type="text/javascript"></script>
+    <script src="script.js"></script>
+</body>
+</html>
