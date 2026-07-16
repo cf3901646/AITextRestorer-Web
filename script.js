@@ -437,7 +437,8 @@ function dragBlock(cx, cy) {
 }
 
 function drawBlocks() {
-    const scaleFactor = zoomScale * zoomFitRatio;
+    let scaleFactor = zoomScale * zoomFitRatio;
+    if (isNaN(scaleFactor) || scaleFactor <= 0) scaleFactor = 1.0;
     blocks.forEach((b, i) => {
         const [x, y, w, h] = b.rect, cur = i === activeBlockIdx;
         const color = b.alignStatus === 'success' ? (cur ? '#30D158' : '#248A3D') : (cur ? '#FF453A' : '#B22222');
@@ -624,7 +625,8 @@ function alignBlock(idx) {
             // --- 阶段二：若模板匹配未达标，则启动 ORB 特征点单应性透视变换（warpPerspective）对齐 ---
             if (!ok) {
                 let orb = new cv.ORB(1000);
-                let kp1 = new cv.KeyPointVector(), kp2 = new cv.KeyPointVector();
+                let kp1 = cv.KeyPointVector ? new cv.KeyPointVector() : new cv.KeyVector();
+                let kp2 = cv.KeyPointVector ? new cv.KeyPointVector() : new cv.KeyVector();
                 let des1 = new cv.Mat(), des2 = new cv.Mat();
                 let noMask = new cv.Mat();
                 
@@ -724,6 +726,7 @@ function alignBlock(idx) {
     }
     
     b.alignStatus = ok ? 'success' : 'failed';
+    updateBlockUI();
     setStatus(ok ? `【对齐成功】板块 '${b.label}' 已配准，色彩和亮度已自动适应AI图！` : `【对齐失败】板块 '${b.label}' 未找到特征。请拖动边框手动微调！`);
 }
 
