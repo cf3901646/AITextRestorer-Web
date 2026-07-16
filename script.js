@@ -520,6 +520,7 @@ function recomputeAllBlocks() {
     blocks.forEach((b, i) => {
         alignBlock(i);
     });
+    render();
 }
 
 /* 基于 OpenCV.js 的智能板块配准对齐 */
