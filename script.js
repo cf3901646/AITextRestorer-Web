@@ -116,7 +116,7 @@ function initEditor() {
     maskCanvas = document.createElement('canvas');
     maskCanvas.width = w; maskCanvas.height = h;
     maskCtx = maskCanvas.getContext('2d');
-    maskCtx.fillStyle = '#000'; maskCtx.fillRect(0, 0, w, h);
+    maskCtx.clearRect(0, 0, w, h);
     maskHistory = []; blocks = []; activeBlockIdx = -1;
     document.getElementById('btn-clear').disabled = false;
     document.getElementById('btn-save').disabled = false;
@@ -156,16 +156,14 @@ function render(compare) {
     const cmpBtn = document.getElementById('btn-compare');
     if (compare || cmpBtn._hold) { ctx.drawImage(canvasAligned, 0, 0, cw, ch); return; }
     ctx.drawImage(imgOpt, 0, 0, cw, ch);
-    if (maskHistory.length > 0) {
-        const tmp = document.createElement('canvas'); tmp.width = cw; tmp.height = ch;
-        const tc = tmp.getContext('2d');
-        tc.drawImage(canvasAligned, 0, 0, cw, ch);
-        tc.globalCompositeOperation = 'destination-in';
-        if (featherSize > 0) tc.filter = `blur(${Math.round(featherSize * zoomRatio)}px)`;
-        tc.drawImage(maskCanvas, 0, 0, cw, ch);
-        tc.filter = 'none';
-        ctx.drawImage(tmp, 0, 0);
-    }
+    const tmp = document.createElement('canvas'); tmp.width = cw; tmp.height = ch;
+    const tc = tmp.getContext('2d');
+    tc.drawImage(canvasAligned, 0, 0, cw, ch);
+    tc.globalCompositeOperation = 'destination-in';
+    if (featherSize > 0) tc.filter = `blur(${Math.round(featherSize * zoomRatio)}px)`;
+    tc.drawImage(maskCanvas, 0, 0, cw, ch);
+    tc.filter = 'none';
+    ctx.drawImage(tmp, 0, 0);
     if (toolMode === 'block') drawBlocks();
 }
 
@@ -236,13 +234,22 @@ function onUp(e) {
 
 function paint(x, y, start) {
     if (!maskCtx) return;
-    maskCtx.save(); maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
+    maskCtx.save();
+    maskCtx.lineCap = 'round';
+    maskCtx.lineJoin = 'round';
     maskCtx.lineWidth = brushSize;
-    maskCtx.strokeStyle = toolMode === 'draw' ? '#fff' : '#000';
+    if (toolMode === 'draw') {
+        maskCtx.globalCompositeOperation = 'source-over';
+        maskCtx.strokeStyle = 'rgba(255, 255, 255, 1)';
+    } else if (toolMode === 'erase') {
+        maskCtx.globalCompositeOperation = 'destination-out';
+        maskCtx.strokeStyle = 'rgba(0, 0, 0, 1)';
+    }
     maskCtx.beginPath();
     if (start) { maskCtx.moveTo(x, y); maskCtx.lineTo(x, y); }
     else { maskCtx.moveTo(lastPX, lastPY); maskCtx.lineTo(x, y); }
-    maskCtx.stroke(); maskCtx.restore();
+    maskCtx.stroke();
+    maskCtx.restore();
 }
 
 function saveHist() {
@@ -366,15 +373,13 @@ function saveResult() {
     const out = document.createElement('canvas'); out.width=w; out.height=h;
     const oc = out.getContext('2d');
     oc.drawImage(imgOpt, 0, 0);
-    if (maskHistory.length > 0) {
-        const tmp = document.createElement('canvas'); tmp.width=w; tmp.height=h;
-        const tc = tmp.getContext('2d');
-        tc.drawImage(canvasAligned, 0, 0);
-        tc.globalCompositeOperation = 'destination-in';
-        if (featherSize > 0) tc.filter = `blur(${featherSize}px)`;
-        tc.drawImage(maskCanvas, 0, 0); tc.filter = 'none';
-        oc.drawImage(tmp, 0, 0);
-    }
+    const tmp = document.createElement('canvas'); tmp.width=w; tmp.height=h;
+    const tc = tmp.getContext('2d');
+    tc.drawImage(canvasAligned, 0, 0);
+    tc.globalCompositeOperation = 'destination-in';
+    if (featherSize > 0) tc.filter = `blur(${featherSize}px)`;
+    tc.drawImage(maskCanvas, 0, 0); tc.filter = 'none';
+    oc.drawImage(tmp, 0, 0);
     out.toBlob(blob => {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
